@@ -130,3 +130,5 @@ Technical, Performance & Accuracy
      - 12.61
      - 1.47
      - 2.67
+
+Disclaimer: The accuracy of Llama3.2-3B-Instruct is currently under optimization and results are subject to improvement.
