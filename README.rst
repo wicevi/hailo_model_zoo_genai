@@ -7,7 +7,7 @@ Hailo Model Zoo GenAI
    :width: 80
    :height: 20
 
-.. |runtime| image:: https://img.shields.io/badge/HailoRT-5.1.0-brightgreen.svg
+.. |runtime| image:: https://img.shields.io/badge/HailoRT-5.2.0-brightgreen.svg
    :target: https://hailo.ai/company-overview/contact-us/
    :alt: HailoRT
    :width: 80
@@ -44,6 +44,7 @@ Prerequisites
 
 * Hailo-10H module.
 * Ensure  `HailoRT <https://github.com/hailo-ai/hailort>`__ is installed.
+* The Hailo-Ollama is only supported on Linux OS.
 
 Two installation methods are available
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -110,14 +111,25 @@ Basic Usage
 
     curl --silent http://localhost:8000/api/chat \
          -H 'Content-Type: application/json' \
-         -d '{"model": "qwen2:1.5b", "messages": [{"role": "user", "content": "Translate to French: The cat is on the table."}]}'
+         -d '{"model": "qwen2:1.5b", "messages": [{"role": "user", "content": "Tell me a joke"}]}'
+
 
 Optional Open WebUI
 ~~~~~~~~~~~~~~~~~~~
 
-Example for running the Hailo-Ollama server with WebUI:
+Open WebUI is an optional user-friendly web interface that provides a modern web-based interface for chat with Hailo LLMs. It offers a convenient alternative to command-line interactions, allowing users to interact with AI models through an intuitive browser-based interface.
 
-* Install `WebUI <https://docs.openwebui.com/>`__ Ollama client.
+Benefits of using Open WebUI include:
+
+* **Easy-to-use interface**: No need to use curl commands or write custom scripts - simply access the web interface through your browser
+* **Visual model management**: Browse and select available LLM or VLM models from a user-friendly interface
+* **Conversation history**: Keep track of your chat sessions and conversation history
+* **Multi-model support**: Easily switch between different models without changing commands
+* **Accessibility**: Access your Hailo-Ollama server from any device with a web browser on the same network
+
+Open WebUI can be installed and run as a separate Docker container that works alongside the Hailo Model Zoo GenAI installation. It connects to the Hailo-Ollama server, providing an intuitive web-based interface for interacting with GenAI models running on Hailo devices. Pull the Hailo-Ollama server LLM or VLM models from the available models and start chatting with an AI through the web interface.
+
+Example for running the Hailo-Ollama server with WebUI:
 
 * Start the Hailo-Ollama server:
 
@@ -125,13 +137,18 @@ Example for running the Hailo-Ollama server with WebUI:
 
     hailo-ollama
 
-* Run WebUI Ollama client:
+* In a separate terminal, install and run Open WebUI using Docker:
 
   .. code-block::
 
-    OLLAMA_BASE_URL=http://127.0.0.1:8000 DATA_DIR=~/.open-webui uvx --python 3.10 open-webui@latest serve
+    docker run -d --net=host -e OLLAMA_BASE_URL=http://127.0.0.1:8000 -v open-webui:/app/backend/data --name open-webui --restart always ghcr.io/open-webui/open-webui:main
 
-* Access the WebUI at `http://localhost:8080 <http://localhost:8080>`__
+* Access the WebUI at `http://localhost:8080 <http://localhost:8080>`__.
+
+.. note::
+    The ``--net=host`` option is required to allow the Open WebUI Docker container to access the Hailo-Ollama server running on the host machine at ``localhost:8000``. Without this option, the container would have its own network namespace and wouldn't be able to reach services on the host via localhost.
+
+    The Open WebUI Docker command assumes the Hailo-Ollama server is running on port 8000 (the default). Adjust the ``OLLAMA_BASE_URL`` environment variable if your Hailo-Ollama server is running on a different port or host.
 
 For detailed usage instructions and advanced examples, see the `USAGE <docs/USAGE.rst>`__ page.
 
