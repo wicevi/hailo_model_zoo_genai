@@ -64,6 +64,7 @@ class ChatParams : public oatpp::DTO
     DTO_FIELD(String, model);
     // These are actually json but we use nlohmann/json for them
     DTO_FIELD(Vector<Object<ChatMessage>>, messages);
+    DTO_FIELD(Vector<String>, images);
     DTO_FIELD(String, tools);
 
     DTO_FIELD(String, format);
@@ -170,6 +171,7 @@ class ModelInfoShort : public oatpp::DTO
     DTO_FIELD(String, digest);
     DTO_FIELD(Object<ModelInfoDetails>, details);
     DTO_FIELD(String, expires_at);
+    DTO_FIELD(Vector<String>, capabilities);
 };
 
 class ListAllResponse : public oatpp::DTO

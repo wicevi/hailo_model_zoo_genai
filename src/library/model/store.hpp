@@ -18,11 +18,19 @@
 namespace hailo_ollama
 {
 
+enum class ModelType {
+    LLM,
+    VLM
+};
+
 struct ModelInfo {
     std::string name;
     std::string hef_resource;
     std::string details;
     std::string license;
+    ModelType type = ModelType::LLM;
+    uint32_t frame_width = 0;   // VLM only
+    uint32_t frame_height = 0;  // VLM only
 };
 
 class ModelStore : Interface

@@ -32,11 +32,29 @@ ModelInfo model_from_json(const std::string &name, const json &j)
     const auto &license = j.find("license");
     std::string license_string =
         (license != j.end() && !license->is_null()) ? license->template get<std::string>() : "";
+
+    // Parse model type (LLM/VLM) and optional VLM frame size
+    ModelType model_type = ModelType::LLM;
+    uint32_t frame_w = 0;
+    uint32_t frame_h = 0;
+    const auto type_it = j.find("type");
+    if (type_it != j.end() && type_it->is_string() && type_it->get<std::string>() == "vlm") {
+        model_type = ModelType::VLM;
+        const auto vlm_it = j.find("vlm_params");
+        if (vlm_it != j.end() && vlm_it->is_object()) {
+            frame_w = vlm_it->value("frame_width", 0u);
+            frame_h = vlm_it->value("frame_height", 0u);
+        }
+    }
+
     return ModelInfo{
         name,
         j.at("hef_h10h").template get<std::string>(),
         std::move(details_string),
-        std::move(license_string)
+        std::move(license_string),
+        model_type,
+        frame_w,
+        frame_h
     };
 }
 

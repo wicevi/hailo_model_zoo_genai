@@ -10,6 +10,7 @@
 #include "generation_context/generation_context.hpp"
 
 #include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <memory>
 #include <optional>
@@ -18,6 +19,7 @@
 #include <thread>
 
 #include <hailo/genai/llm/llm.hpp>
+#include <hailo/genai/vlm/vlm.hpp>
 #include <hailo/hailort_defaults.hpp>
 #include <hailo/vdevice.hpp>
 #include <oatpp/base/Log.hpp>
@@ -29,11 +31,69 @@ using namespace std::string_literals;
 namespace hailo_ollama
 {
 
+static void apply_generation_options(const GenerationOptions &options, hailort::genai::LLMGeneratorParams &params)
+{
+    if (options.temperature.has_value()) {
+        if (*options.temperature == 0.0F) {
+            params.set_do_sample(false);
+        } else {
+            params.set_do_sample(true);
+            params.set_temperature(*options.temperature);
+        }
+    }
+    if (options.seed.has_value() && *options.seed != -1) {
+        params.set_seed(*options.seed);
+    }
+    if (options.top_k.has_value()) {
+        params.set_top_k(*options.top_k);
+    }
+    if (options.top_p.has_value()) {
+        params.set_top_p(*options.top_p);
+    }
+    if (options.frequency_penalty.has_value()) {
+        params.set_frequency_penalty(*options.frequency_penalty);
+    }
+    if (options.num_predict.has_value()) {
+        params.set_max_generated_tokens(*options.num_predict);
+    }
+}
+
+static size_t count_image_placeholders_heuristic(const std::vector<std::string> &messages_json)
+{
+    // Heuristic count to avoid JSON parsing overhead/deps here.
+    // We count both `"type":"image"` and `"type": "image"` occurrences.
+    auto count_in = [](const std::string &s, const std::string &needle) -> size_t {
+        size_t count = 0;
+        size_t pos = 0;
+        while (true) {
+            pos = s.find(needle, pos);
+            if (pos == std::string::npos) {
+                return count;
+            }
+            ++count;
+            pos += needle.size();
+        }
+    };
+
+    size_t total = 0;
+    for (const auto &msg : messages_json) {
+        total += count_in(msg, "\"type\":\"image\"");
+        total += count_in(msg, "\"type\": \"image\"");
+    }
+    return total;
+}
+
 LLMWrapper::LLMWrapper(hailort::genai::LLM &&llm) : m_llm(std::move(llm)) {}
 
 hailort::genai::LLM &LLMWrapper::operator*() { return m_llm; }
 
 hailort::genai::LLM *LLMWrapper::operator->() { return &m_llm; }
+
+VLMWrapper::VLMWrapper(hailort::genai::VLM &&vlm) : m_vlm(std::move(vlm)) {}
+
+hailort::genai::VLM &VLMWrapper::operator*() { return m_vlm; }
+
+hailort::genai::VLM *VLMWrapper::operator->() { return &m_vlm; }
 
 GenerationContext::GenerationContext() = default;
 
@@ -42,7 +102,7 @@ GenerationContext::GenerationContext(std::optional<std::string> vdevice_group_id
 {}
 
 void GenerationContext::load_model(const std::string &model_name, std::filesystem::path model_path,
-    std::optional<std::chrono::seconds> keep_alive)
+    std::optional<std::chrono::seconds> keep_alive, ModelType model_type)
 {
     m_model_name = model_name;
     m_last_generation = std::chrono::steady_clock::now();
@@ -51,21 +111,34 @@ void GenerationContext::load_model(const std::string &model_name, std::filesyste
     }
     m_keep_alive = keep_alive;
 
-    if (model_path != m_last_path) { // model changed
+    const bool need_reload = (model_path != m_last_path) || (model_type != m_loaded_type);
+    if (need_reload) { // model changed or type changed
         OATPP_LOGi("GenerationThread", "loading model '{}'", m_model_name);
         m_llm.reset();
+        m_vlm.reset();
         // we would like to share the VDevice in the future but it's not supported yet
         m_vdevice.reset();
 
         m_last_path = model_path;
+        m_loaded_type = model_type;
         auto vdevice_params = hailort::HailoRTDefaults::get_vdevice_params();
+        vdevice_params.multi_process_service = true;
         if (m_vdevice_group_id) {
             vdevice_params.group_id = m_vdevice_group_id->c_str();
         }
         m_vdevice = hailort::VDevice::create_shared(vdevice_params).expect("Failed to create VDevice");
-        auto llm_params = hailort::genai::LLMParams();
-        llm_params.set_model(m_last_path.string(), ""s);
-        m_llm = std::make_unique<LLMWrapper>(hailort::genai::LLM::create(m_vdevice, llm_params).expect("Failed to create LLM"));
+        if (model_type == ModelType::VLM) {
+            auto vlm_params = hailort::genai::VLMParams(m_last_path.string());
+            m_vlm = std::make_unique<VLMWrapper>(
+                hailort::genai::VLM::create(m_vdevice, vlm_params).expect("Failed to create VLM")
+            );
+        } else {
+            auto llm_params = hailort::genai::LLMParams();
+            llm_params.set_model(m_last_path.string(), ""s);
+            m_llm = std::make_unique<LLMWrapper>(
+                hailort::genai::LLM::create(m_vdevice, llm_params).expect("Failed to create LLM")
+            );
+        }
         OATPP_LOGi("GenerationThread", "Finished loading model '{}'", m_model_name);
     }
 }
@@ -74,7 +147,7 @@ hailort::genai::LLMGeneratorCompletion GenerationContext::generate_one(const Gen
 {
     OATPP_LOGi("GenerationThread", "got prompt");
 
-    load_model(params.model_name, params.model_path, params.keep_alive);
+    load_model(params.model_name, params.model_path, params.keep_alive, ModelType::LLM);
 
     // Check if this is a continuation of the previous conversation
     // by checking if the new messages start with the cached history as a prefix
@@ -100,14 +173,66 @@ hailort::genai::LLMGeneratorCompletion GenerationContext::generate_one(const Gen
             messages_to_send.size());
     }
 
+    if (!params.generator_params.has_value()) {
+        throw hailort::hailort_error(HAILO_INVALID_ARGUMENT, "LLM generation requires generator params");
+    }
+
     // Generate using the messages
     auto generator_completion =
-        (*m_llm)->generate(params.generator_params, messages_to_send).expect("Failed to generate");
+        (*m_llm)->generate(*params.generator_params, messages_to_send).expect("Failed to generate");
 
     // Update conversation history with the full conversation (not just diff)
     m_conversation_history = params.prompt_json_strings;
 
     return generator_completion;
+}
+
+hailort::genai::LLMGeneratorCompletion GenerationContext::generate_one_vlm(const Generation &params)
+{
+    OATPP_LOGi("GenerationThread", "VLM generate: images={}, messages={}", params.image_buffers.size(),
+        params.messages_json.size());
+
+    load_model(params.model_name, params.model_path, params.keep_alive, ModelType::VLM);
+    if (!m_vlm) {
+        throw hailort::hailort_error(HAILO_INTERNAL_FAILURE, "VLM not loaded");
+    }
+
+    const auto clear_status = (*m_vlm)->clear_context();
+    if (clear_status != HAILO_SUCCESS) {
+        throw hailort::hailort_error(clear_status, "Failed to clear VLM context");
+    }
+
+    auto generator_params = (*m_vlm)->create_generator_params().expect("Failed to create VLM generator params");
+    apply_generation_options(params.options, generator_params);
+    auto generator = (*m_vlm)->create_generator(generator_params).expect("Failed to create VLM generator");
+
+    if (std::getenv("HAILO_OLLAMA_VLM_DEBUG_INPUT") != nullptr) {
+        const auto &shape = (*m_vlm)->input_frame_shape();
+        const auto expected_size = (*m_vlm)->input_frame_size();
+        const auto expected_type = (*m_vlm)->input_frame_format_type();
+        const auto expected_order = (*m_vlm)->input_frame_format_order();
+        const auto expected_images = count_image_placeholders_heuristic(params.messages_json);
+        OATPP_LOGi("GenerationThread",
+            "VLM expected frame: {}x{}x{}, size={}, type={}, order={}, expected_images_in_messages={}",
+            shape.width, shape.height, shape.features, expected_size,
+            static_cast<int>(expected_type), static_cast<int>(expected_order), expected_images);
+    }
+
+    // Validate number of frames matches number of `"type":"image"` placeholders in messages.
+    const auto expected_images = count_image_placeholders_heuristic(params.messages_json);
+    if (expected_images != params.image_buffers.size()) {
+        throw hailort::hailort_error(HAILO_INVALID_ARGUMENT,
+            "VLM input mismatch: messages reference " + std::to_string(expected_images) +
+            " images but request provided " + std::to_string(params.image_buffers.size()) + " frames");
+    }
+
+    std::vector<hailort::MemoryView> frames;
+    frames.reserve(params.image_buffers.size());
+    for (const auto &buf : params.image_buffers) {
+        frames.emplace_back(const_cast<uint8_t*>(buf.data()), buf.size());
+    }
+
+    return generator.generate(params.messages_json, frames).expect("Failed to generate VLM completion");
 }
 
 void GenerationContext::append_assistant_message(const std::string &content)
@@ -172,6 +297,8 @@ void GenerationContext::reset()
     m_conversation_history.clear();
     m_keep_alive = std::nullopt;
     m_llm.reset();
+    m_vlm.reset();
+    m_loaded_type = ModelType::LLM;
     m_vdevice.reset();
 }
 

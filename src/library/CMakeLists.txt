@@ -2,6 +2,7 @@
 include(${HAILO_OLLAMA_CMAKE_SCRIPTS}/oatpp.cmake)
 include(${HAILO_OLLAMA_CMAKE_SCRIPTS}/json.cmake)
 include(${HAILO_OLLAMA_CMAKE_SCRIPTS}/eventpp.cmake)
+include(${HAILO_OLLAMA_CMAKE_SCRIPTS}/stb.cmake)
 
 add_library(hailo-ollama-lib
     config/static_config.hpp
@@ -9,6 +10,8 @@ add_library(hailo-ollama-lib
     controller/controller.hpp
     controller/llm_generation_callback.cpp
     controller/llm_generation_callback.hpp
+    controller/openai_streaming_callback.cpp
+    controller/openai_streaming_callback.hpp
     controller/pull_callback.cpp
     controller/pull_callback.hpp
     controller/writefile_callback.cpp
@@ -25,6 +28,10 @@ add_library(hailo-ollama-lib
     model/blob_resource.hpp
     model/simple_store.cpp
     model/simple_store.hpp
+    utils/base64.hpp
+    utils/base64.cpp
+    utils/image_decode.hpp
+    utils/image_decode.cpp
     utils/path.hpp
     utils/path.cpp
     utils/split.hpp
@@ -49,6 +56,7 @@ target_link_libraries(hailo-ollama-lib
     PUBLIC OpenSSL::SSL
     PUBLIC OpenSSL::Crypto
     PUBLIC eventpp::eventpp
+    PRIVATE stb
 )
 
 # libguarded: local modified copy of cs_plain_guarded.h from cs_libguarded.

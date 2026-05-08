@@ -1,0 +1,30 @@
+{
+    "hef_h10h": "7b2a8ee15269172a6b5e63690ac88d3e59ff9eeaacb3d99d6e1049bc59fbc407",
+    "type": "vlm",
+    "vlm_params": {
+        "frame_width": 336,
+        "frame_height": 336
+    },
+    "template_params": {
+        "bos_token": "",
+        "eos_token": "<|im_end|>",
+        "chat_template": ""
+    },
+    "generation_params": {
+        "stop_tokens": ["<|endoftext|>", "<|im_end|>"],
+        "temperature": 0.7,
+        "top_p": 0.8,
+        "top_k": 20
+    },
+    "license": null,
+    "system_prompt": null,
+    "details": {
+        "parent_model": "",
+        "format": "hef",
+        "family": "qwen2-vl",
+        "families": ["qwen2-vl"],
+        "parameter_size": "2B",
+        "quantization_level": "Q4_0"
+    }
+}
+
